@@ -60,10 +60,7 @@ module mycpu_core(
 
         .mem_we          (mem_to_wb_bus[37]   ),
         .mem_waddr       (mem_to_wb_bus[36:32]),
-        .mem_wdata       (mem_to_wb_bus[31:0] ),
-
-        .stall_for_load  (stall_for_load      ),
-        .ex_ram_read     (ex_to_mem_bus[38]   )
+        .mem_wdata       (mem_to_wb_bus[31:0] )
     );
 
     EX u_EX(
