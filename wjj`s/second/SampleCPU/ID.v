@@ -21,9 +21,7 @@ module ID(
     input wire [31:0] ex_wdata,
     input wire mem_we,
     input wire [4:0] mem_waddr,
-    input wire [31:0] mem_wdata,
-    output wire stall_for_load,
-    input wire ex_ram_read
+    input wire [31:0] mem_wdata
 );
 
     reg [`IF_TO_ID_WD-1:0] if_to_id_bus_r;
@@ -294,8 +292,6 @@ module ID(
                              32'b0;
     assign rdata1_fd = sel_rs_forward ? rs_forward_data : rf_rdata1;
     assign rdata2_fd = sel_rt_forward ? rt_forward_data : rf_rdata2;
-
-    assign stall_for_load = ex_ram_read & (rs_ex_ok | rt_ex_ok);
 
     assign id_to_ex_bus = {
         mem_op,
