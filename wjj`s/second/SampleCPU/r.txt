@@ -1,0 +1,13 @@
+subu
+jal
+jr
+addu
+bne
+sll
+or
+lw(*)
+sw
+xor
+sltu
+slt
+slti

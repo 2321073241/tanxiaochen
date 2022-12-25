@@ -30,6 +30,10 @@ module mycpu_core(
     wire [`WB_TO_RF_WD-1:0] wb_to_rf_bus;
     wire [`StallBus-1:0] stall;
     wire stallreq_for_load;
+
+    wire [31:0] hi_data,lo_data;
+    wire [65:0] hilo_bus;
+    wire stallreq_for_ex;
     
 
     IF u_IF(
@@ -70,7 +74,10 @@ module mycpu_core(
         .data_sram_en    (data_sram_en    ),
         .data_sram_wen   (data_sram_wen   ),
         .data_sram_addr  (data_sram_addr  ),
-        .data_sram_wdata (data_sram_wdata )
+        .data_sram_wdata (data_sram_wdata ),
+        .hi_data         (hi_data         ),
+        .lo_data         (lo_data         ),
+        .stallreq_for_ex (stallreq_for_ex )
     );
 
     MEM u_MEM(
@@ -91,13 +98,26 @@ module mycpu_core(
         .debug_wb_pc       (debug_wb_pc       ),
         .debug_wb_rf_wen   (debug_wb_rf_wen   ),
         .debug_wb_rf_wnum  (debug_wb_rf_wnum  ),
-        .debug_wb_rf_wdata (debug_wb_rf_wdata )
+        .debug_wb_rf_wdata (debug_wb_rf_wdata ),
+        .hilo_bus          (hilo_bus          )
     );
 
     CTRL u_CTRL(
     	.rst   (rst   ),
         .stall (stall ),
-        .stallreq_for_load(stallreq_for_load)
+        .stallreq_for_load(stallreq_for_load),
+        .stallreq_for_ex  (stallreq_for_ex  )
+    );
+
+    hilo_reg u_hilo_reg(
+        .rst     (rst                  ),
+        .clk     (clk                  ),
+        .stall   (stall                ),
+        .ex_bus  (ex_to_mem_bus[146:81]),
+        .mem_bus (mem_to_wb_bus[135:70]),
+        .hilo_bus(hilo_bus             ),
+        .hi_data (hi_data              ),
+        .lo_data (lo_data              )
     );
     
 endmodule
