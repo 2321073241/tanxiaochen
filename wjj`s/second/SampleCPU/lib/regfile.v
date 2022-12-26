@@ -40,7 +40,7 @@ module hilo_reg(
     output wire [31:0] hi_data,
     output wire [31:0] lo_data
 );
-    reg [31:0] hi,lo;
+    wire [31:0] hi,lo;
 
     wire ex_hi_we,ex_lo_we,mem_hi_we,mem_lo_we;
     wire [31:0] ex_hi_in,ex_lo_in,mem_hi_in,mem_lo_in;
@@ -64,6 +64,7 @@ module hilo_reg(
         hi_in,
         lo_in
     } = hilo_bus;
+<<<<<<< Updated upstream
     assign hi_data = hi;
     assign lo_data = lo;
     always @ (*) begin
@@ -88,5 +89,17 @@ module hilo_reg(
             end
         end
     end
+>>>>>>> Stashed changes
+=======
+    assign hi_data = ex_hi_we ? ex_hi_in:
+                     mem_hi_we? mem_hi_in:
+                     hi_we    ? hi_in:
+                     hi;
+    assign lo_data = ex_lo_we ? ex_lo_in:
+                     mem_lo_we? mem_lo_in:
+                     lo_we    ? lo_in:
+                     lo;
+    assign hi = hi_we ? hi_in : hi;
+    assign lo = lo_we ? lo_in : lo;
 >>>>>>> Stashed changes
 endmodule
