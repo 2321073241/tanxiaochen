@@ -28,6 +28,7 @@ module MEM(
         end
     end
 
+    wire [65:0] hilo_bus;
     wire [31:0] mem_pc;
     wire data_ram_en;
     wire [3:0] data_ram_wen;
@@ -40,6 +41,7 @@ module MEM(
     wire [31:0] mem_result;
 
     assign {
+        hilo_bus,
         mem_op,
         mem_pc,         // 75:44
         data_ram_en,    // 43
@@ -60,15 +62,28 @@ module MEM(
     } = mem_op;
 
     //Load Data
-    wire [31:0] mem_result_r;
-    assign mem_result_r = inst_lw ? data_sram_rdata : 32'b0;
-    assign mem_result = mem_result_r;
-
-
+    // wire [31:0] mem_result_r;
+    // assign mem_result_r = inst_lw ? data_sram_rdata : 32'b0;
+    // assign mem_result = mem_result_r;
+    assign mem_result = inst_lw  ? data_sram_rdata : 
+                        (inst_lb  & ex_result[1:0]==2'b00)?{{24{data_sram_rdata[7]}}, data_sram_rdata[7:0]} :
+                        (inst_lb  & ex_result[1:0]==2'b01)?{{24{data_sram_rdata[15]}}, data_sram_rdata[15:8]} :
+                        (inst_lb  & ex_result[1:0]==2'b10)?{{24{data_sram_rdata[23]}}, data_sram_rdata[23:16]} :
+                        (inst_lb  & ex_result[1:0]==2'b11)?{{24{data_sram_rdata[31]}}, data_sram_rdata[31:24]} :
+                        (inst_lbu & ex_result[1:0]==2'b00)?{{24{1'b0}}, data_sram_rdata[7: 0]} :
+                        (inst_lbu & ex_result[1:0]==2'b01)?{{24{1'b0}}, data_sram_rdata[15: 8]} :
+                        (inst_lbu & ex_result[1:0]==2'b10)?{{24{1'b0}}, data_sram_rdata[23:16]} :
+                        (inst_lbu & ex_result[1:0]==2'b11)?{{24{1'b0}}, data_sram_rdata[31:24]} :
+                        (inst_lh  & ex_result[1:0]==2'b00)?{{16{data_sram_rdata[15]}}, data_sram_rdata[15:0]} :
+                        (inst_lh  & ex_result[1:0]==2'b10)?{{16{data_sram_rdata[31]}}, data_sram_rdata[31:16]} :
+                        (inst_lhu & ex_result[1:0]==2'b00)?{{16{1'b0}}, data_sram_rdata[15:0]} :
+                        (inst_lhu & ex_result[1:0]==2'b10)?{{16{1'b0}}, data_sram_rdata[31:16]} :
+                        32'b0;
 
     assign rf_wdata = sel_rf_res ? mem_result : ex_result;
 
     assign mem_to_wb_bus = {
+        hilo_bus,
         mem_pc,     // 69:38
         rf_we,      // 37
         rf_waddr,   // 36:32
