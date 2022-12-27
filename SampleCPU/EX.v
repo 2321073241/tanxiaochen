@@ -8,12 +8,15 @@ module EX(
     input wire [`ID_TO_EX_WD-1:0] id_to_ex_bus,
 
     output wire [`EX_TO_MEM_WD-1:0] ex_to_mem_bus,
-    output wire [38:0] ex_to_rf_bus,
 
     output wire data_sram_en,
     output wire [3:0] data_sram_wen,
     output wire [31:0] data_sram_addr,
-    output wire [31:0] data_sram_wdata
+    output wire [31:0] data_sram_wdata,
+
+    input wire [31:0] hi_data,
+    input wire [31:0] lo_data,
+    output wire stallreq_for_ex
 );
 
     reg [`ID_TO_EX_WD-1:0] id_to_ex_bus_r;
@@ -33,11 +36,13 @@ module EX(
         end
     end
 
-    wire [4:0] mem_op;
     wire [31:0] ex_pc, inst;
+    wire [8:0] hilo_op;
+    wire [4:0] mem_op;
     wire [11:0] alu_op;
     wire [2:0] sel_alu_src1;
     wire [3:0] sel_alu_src2;
+    wire data_ram_en;
     wire [3:0] data_ram_wen;
     wire rf_we;
     wire [4:0] rf_waddr;
@@ -46,13 +51,14 @@ module EX(
     reg is_in_delayslot;
 
     assign {
-        mem_op,         // 163:159
-        ex_pc,          // 158:127
-        inst,           // 126:95
-        alu_op,         // 94:83
+        hilo_op,
+        mem_op,
+        ex_pc,          // 148:117
+        inst,           // 116:85
+        alu_op,         // 84:83
         sel_alu_src1,   // 82:80
         sel_alu_src2,   // 79:76
-        data_sram_en,    // 75
+        data_ram_en,    // 75
         data_ram_wen,   // 74:71
         rf_we,          // 70
         rf_waddr,       // 69:65
@@ -61,7 +67,6 @@ module EX(
         rf_rdata2          // 31:0
     } = id_to_ex_bus_r;
 
-    // 3 types of imm_extends
     wire [31:0] imm_sign_extend, imm_zero_extend, sa_zero_extend;
     assign imm_sign_extend = {{16{inst[15]}},inst[15:0]};
     assign imm_zero_extend = {16'b0, inst[15:0]};
@@ -69,6 +74,8 @@ module EX(
 
     wire [31:0] alu_src1, alu_src2;
     wire [31:0] alu_result, ex_result;
+    wire [31:0] hilo_result;
+    wire [65:0] hilo_bus;
 
     assign alu_src1 = sel_alu_src1[1] ? ex_pc :
                       sel_alu_src1[2] ? sa_zero_extend : rf_rdata1;
@@ -83,66 +90,141 @@ module EX(
         .alu_src2    (alu_src2    ),
         .alu_result  (alu_result  )
     );
-
-    // store data
+    
     wire inst_sb, inst_sh, inst_sw;
+    //wire [3:0] data_sram_wen_r;
+    //wire [31:0] data_sram_wdata_r;
 
     assign {
-        inst_sb, 
+        inst_sb,
         inst_sh,
         inst_sw
     } = data_ram_wen[2:0];
 
-    assign data_sram_wen   = inst_sw ? 4'b1111 : 4'b0;
+    assign data_sram_wen_r = inst_sw ? 4'b1111 : 4'b0000;
 
-    assign data_sram_addr  = data_sram_en ? rf_rdata1 + {{16{inst[15]}}, inst[15:0]} : 32'b0; 
+   //assign data_sram_wdata_r = inst_sw ? rf_rdata2 : 32'b0;
 
-    assign data_sram_wdata = (data_sram_wen == 4'b1111) ? rf_rdata2 : 32'b0;
+    assign data_sram_en = data_ram_en;
+    //assign data_sram_wen = data_sram_wen_r;
+    assign data_sram_addr = alu_result;
 
-    assign ex_result = alu_result;
+    //assign data_sram_wdata = data_sram_wdata_r;
 
+    assign data_sram_wen   = inst_sw ? 4'b1111 :
+                             inst_sb & alu_result[1:0]==2'b00 ? 4'b0001 :
+                             inst_sb & alu_result[1:0]==2'b01 ? 4'b0010 :
+                             inst_sb & alu_result[1:0]==2'b10 ? 4'b0100 :
+                             inst_sb & alu_result[1:0]==2'b11 ? 4'b1000 :
+                             inst_sh & alu_result[1:0]==2'b00 ? 4'b0011 :
+                             inst_sh & alu_result[1:0]==2'b10 ? 4'b1100 :
+                             4'b0;
+    assign data_sram_wdata = inst_sw ? rf_rdata2 :
+                             inst_sb ? {4{rf_rdata2[ 7: 0]}} :
+                             inst_sh ? {2{rf_rdata2[15: 0]}} :
+                             32'b0;
     assign ex_to_mem_bus = {
-        mem_op,         // 80:76
+        hilo_bus,
+        mem_op,
         ex_pc,          // 75:44
-        data_sram_en,    // 43
+        data_ram_en,    // 43
         data_ram_wen,   // 42:39
         sel_rf_res,     // 38
         rf_we,          // 37
         rf_waddr,       // 36:32
         ex_result       // 31:0
     };
-    assign ex_to_rf_bus = {
-        sel_rf_res,
-        rf_we,
-        rf_waddr,
-        ex_result
-    };
+    // hilo part
+    wire inst_div,inst_mflo,inst_mfhi;
+    wire inst_mthi,inst_mtlo;
+    wire inst_divu;
+    wire inst_mul,inst_mult,inst_multu;
+    assign {
+        inst_mfhi, inst_mflo, inst_mthi, inst_mtlo,
+        inst_mult, inst_multu, inst_div, inst_divu,
+        inst_mul
+    } = hilo_op;
 
-    // MUL part
+    reg stallreq_for_mul;
+    reg stallreq_for_div;
+    assign stallreq_for_ex = stallreq_for_div | stallreq_for_mul;
+
     wire [63:0] mul_result;
     wire mul_signed; // 有符号乘法标记
 
-    mul u_mul(
-    	.clk        (clk            ),
-        .resetn     (~rst           ),
-        .mul_signed (mul_signed     ),
-        .ina        (      ), // 乘法源操作数1
-        .inb        (      ), // 乘法源操作数2
-        .result     (mul_result     ) // 乘法结果 64bit
-    );
-
-    // DIV part
     wire [63:0] div_result;
-    wire inst_div, inst_divu;
     wire div_ready_i;
-    reg stallreq_for_div;
-    assign stallreq_for_ex = stallreq_for_div;
-
     reg [31:0] div_opdata1_o;
     reg [31:0] div_opdata2_o;
     reg div_start_o;
     reg signed_div_o;
+    
+    wire hi_we,lo_we;
+    wire [31:0] hi_result,lo_result;
 
+    wire op_mul = inst_mul | inst_mult | inst_multu;
+    wire op_div = inst_div | inst_divu;
+
+    assign hi_we = op_div | inst_mult | inst_multu | inst_mthi;
+    assign lo_we = op_div | inst_mult | inst_multu | inst_mtlo;
+    assign hi_result = inst_mthi ? rf_rdata1:
+                       op_div ? div_result[63:32] :
+                       op_mul ? mul_result[63:32] :
+                       32'b0;
+    assign lo_result = inst_mtlo ? rf_rdata1:
+                       op_div ? div_result[31:0] :
+                       op_mul ? mul_result[31:0] :
+                       32'b0;
+
+    assign hilo_result = inst_mfhi ? hi_data :
+                         inst_mflo ? lo_data :
+                         32'b0;
+    assign hilo_bus = {hi_we,lo_we,hi_result,lo_result};
+    assign ex_result = (inst_mfhi | inst_mflo) ? hilo_result : alu_result;
+
+    // MUL part
+    assign mul_signed = inst_mult;
+    mul u_mul(
+    	.clk        (clk            ),
+        .resetn     (~rst           ),
+        .mul_signed (mul_signed     ),
+        .ina        (rf_rdata1      ), // 乘法源操作数1
+        .inb        (rf_rdata2      ), // 乘法源操作数2
+        .result     (mul_result     ) // 乘法结果 64bit
+    );
+
+    reg cnt;
+    reg next_cnt;
+
+    always @ (posedge clk) begin
+        if (rst) begin
+            cnt <= 1'b0;
+        end
+        else begin
+            cnt <= next_cnt;
+        end
+    end
+
+    always @ (posedge clk) begin
+        if (clk) begin
+            stallreq_for_mul <= 1'b0;
+            next_cnt <= 1'b0;
+        end
+        else if ((inst_mult | inst_multu) & ~cnt) begin
+            stallreq_for_mul <= 1'b1;
+            next_cnt <= 1'b1;
+        end
+        else if ((inst_mult | inst_multu) & cnt) begin
+            stallreq_for_mul <= 1'b0;
+            next_cnt <= 1'b0;
+        end
+        else begin
+            stallreq_for_mul <= 1'b0;
+            next_cnt <= 1'b0;
+        end
+    end 
+
+    // DIV part
     div u_div(
     	.rst          (rst          ),
         .clk          (clk          ),
